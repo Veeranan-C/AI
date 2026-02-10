@@ -23,21 +23,28 @@ from langchain_core.prompts import PromptTemplate
 warnings.filterwarnings("ignore")
 
 # =====================================================
-# ENV & LLM INITIALIZATION (ONCE — NEVER IN LOOPS)
+# OPENAI AVAILABILITY CHECK
 # =====================================================
-assert os.getenv("OPENAI_API_KEY"), "OPENAI_API_KEY not set"
+OPENAI_AVAILABLE = bool(os.getenv("OPENAI_API_KEY"))
 
-llm = ChatOpenAI(
-    model="gpt-5.2",          # or "o3-pro"
-    temperature=0.1,
-    max_tokens=2000
-)
+llm = None
+if OPENAI_AVAILABLE:
+    llm = ChatOpenAI(
+        model="gpt-5.2",
+        temperature=0.1,
+        max_tokens=2000
+    )
 
 # =====================================================
 # STREAMLIT UI
 # =====================================================
 st.set_page_config("AI Supply Chain Optimizer", layout="wide")
 st.title("🤖 Multi-Agent Supply Chain Optimization System (A2A Enabled)")
+
+if OPENAI_AVAILABLE:
+    st.success("🔑 OpenAI Key detected — AI Strategy Agents ENABLED")
+else:
+    st.warning("⚠️ OpenAI Key not found — Running in Non-LLM Mode")
 
 mode = st.radio(
     "Select Execution Mode",
@@ -184,7 +191,7 @@ def risk_simulation_agent(merged):
     return out
 
 # =====================================================
-# AGENT 4 — DEMAND STRATEGY LLM (A2A)
+# LLM PROMPTS (USED ONLY IF KEY EXISTS)
 # =====================================================
 demand_strategy_agent_A2A = PromptTemplate(
     input_variables=["data"],
@@ -200,9 +207,6 @@ Bullet points only.
 """
 )
 
-# =====================================================
-# AGENT 5 — INVENTORY STRATEGY LLM (A2A)
-# =====================================================
 inventory_strategy_agent_A2A = PromptTemplate(
     input_variables=["inventory", "demand_message"],
     template="""
@@ -223,9 +227,6 @@ Bullet points only.
 """
 )
 
-# =====================================================
-# AGENT 6 — RISK MITIGATION LLM (A2A)
-# =====================================================
 risk_mitigation_agent_A2A = PromptTemplate(
     input_variables=["risk", "inventory_message"],
     template="""
@@ -256,19 +257,19 @@ if st.button("▶ Run"):
         st.subheader("📈 Demand Forecast")
         st.json(demand)
 
-        st.subheader("🤖 Demand Strategy Agent (A2A)")
-        st.markdown((demand_strategy_agent_A2A | llm).invoke({"data": demand}).content)
+        if OPENAI_AVAILABLE:
+            st.subheader("🤖 Demand Strategy Agent (A2A)")
+            st.markdown((demand_strategy_agent_A2A | llm).invoke({"data": demand}).content)
 
-    # ================= INVENTORY ONLY (FIXED) =================
+    # ================= INVENTORY ONLY =================
     elif mode == "📦 Inventory Optimization Only" and forecast_file and inventory_file:
         df = pd.read_csv(forecast_file) if forecast_file.name.endswith(".csv") else pd.read_excel(forecast_file)
         inv = pd.read_csv(inventory_file) if inventory_file.name.endswith(".csv") else pd.read_excel(inventory_file)
 
-        # 🔑 Silent dependency execution
         demand = demand_forecasting_agent(df)
         inventory = inventory_optimization_agent(inv, demand)
 
-        st.subheader("📦 Inventory Optimization (EOQ + ROP)")
+        st.subheader("📦 Inventory Optimization")
         st.json(inventory)
 
     # ================= FULL SYSTEM =================
@@ -286,35 +287,34 @@ if st.button("▶ Run"):
 
         risk = risk_simulation_agent(merged)
 
-        # ================= A2A COMMUNICATION =================
-        demand_msg = (demand_strategy_agent_A2A | llm).invoke({"data": demand}).content
-        inventory_msg = (inventory_strategy_agent_A2A | llm).invoke({
-            "inventory": inventory,
-            "demand_message": demand_msg
-        }).content
-        risk_msg = (risk_mitigation_agent_A2A | llm).invoke({
-            "risk": risk,
-            "inventory_message": inventory_msg
-        }).content
-
-        # ================= UI =================
         st.subheader("📈 Demand Forecast")
         st.json(demand)
 
         st.subheader("📦 Inventory Optimization")
         st.json(inventory)
 
-        st.subheader("🤖 Demand Strategy Agent (A2A)")
-        st.markdown(demand_msg)
-
-        st.subheader("🤖 Inventory Strategy Agent (A2A)")
-        st.markdown(inventory_msg)
-
         st.subheader("⚠️ Risk Simulation")
         st.json(risk)
 
-        st.subheader("🤖 Risk Mitigation Agent (A2A)")
-        st.markdown(risk_msg)
+        if OPENAI_AVAILABLE:
+            demand_msg = (demand_strategy_agent_A2A | llm).invoke({"data": demand}).content
+            inventory_msg = (inventory_strategy_agent_A2A | llm).invoke({
+                "inventory": inventory,
+                "demand_message": demand_msg
+            }).content
+            risk_msg = (risk_mitigation_agent_A2A | llm).invoke({
+                "risk": risk,
+                "inventory_message": inventory_msg
+            }).content
+
+            st.subheader("🤖 Demand Strategy Agent (A2A)")
+            st.markdown(demand_msg)
+
+            st.subheader("🤖 Inventory Strategy Agent (A2A)")
+            st.markdown(inventory_msg)
+
+            st.subheader("🤖 Risk Mitigation Agent (A2A)")
+            st.markdown(risk_msg)
 
     else:
         st.warning("Please upload the required files.")
